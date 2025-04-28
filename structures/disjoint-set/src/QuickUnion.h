@@ -9,7 +9,12 @@ public:
     explicit QuickUnion(int n) : parent_(n)
     { for (int i=0;i<n;++i) parent_[i]=i; }
 
-    void makeSet(int x) override { if(x>=parent_.size()) parent_.resize(x+1,x); parent_[x]=x; }
+    void makeSet(int x) override
+    {
+        if (static_cast<std::size_t>(x) >= parent_.size())
+            parent_.resize(static_cast<std::size_t>(x) + 1, x);
+        parent_[x] = x;
+    }
     int  find(int x)    override { while (x!=parent_[x]) x=parent_[x]; return x; }
     void unionSets(int a,int b)  override {
         int r1=find(a), r2=find(b); if(r1!=r2) parent_[r1]=r2;

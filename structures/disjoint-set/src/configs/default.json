@@ -3,7 +3,6 @@
 	"delta"      : 250,
 	"T"          : 30,
 	"csv"        : true,
-	"epsilon"    : 3.0,
-	"followMult" : 1.0
+	"epsilon"    : 3.0
   }
   

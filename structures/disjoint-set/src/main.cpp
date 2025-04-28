@@ -169,8 +169,6 @@ int main(int argc, char* argv[])
     int     T          = 20;
     bool    csv        = false;
     double  epsilon    = 2.0;
-    double  followMult = 1.0;
-
 
     if (argc == 2) {
         std::ifstream in(argv[1]);
@@ -181,7 +179,6 @@ int main(int argc, char* argv[])
         if (cfg.contains("T"))          T          = cfg["T"];
         if (cfg.contains("csv"))        csv        = cfg["csv"];
         if (cfg.contains("epsilon"))    epsilon    = cfg["epsilon"];
-        if (cfg.contains("followMult")) followMult = cfg["followMult"];
     }
 
 for (const auto& v : variants) {
