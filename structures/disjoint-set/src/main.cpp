@@ -1,191 +1,159 @@
-// main.cpp
+#include "DisjointSet.h"
+#include "QuickUnion.h"
 #include <vector>
-#include <algorithm>
 #include <random>
 #include <iostream>
-#include <cassert>
-#include "DisjointSet.h"
-#include "QuickUnion.cpp"  // QuickUnion implementation
 #include <iomanip>
+#include <cmath>
+#include <algorithm>
+#include <fstream>
+#include "json.hpp"
+using json = nlohmann::json;
 
-// Structure to hold measured metrics.
-struct Metrics {
-    long totalPathLength;
-    long totalPointerUpdates;
-};
+struct Metrics { long tpl = 0; long tpu = 0; };
 
-// Compute TPL and TPU for a DisjointSet with n elements.
-// TPL is computed by walking from each element up to its representative,
-// and TPU is defined here (for full compression heuristics) as:
-//     TPU = TPL - (sum over roots of number of children).
-// In our QuickUnion (no compression) TPU always remains 0.
-Metrics measureMetrics(const DisjointSet& uf, int n) {
-    long TPL = 0;
-    std::vector<int> childrenCount(n, 0);
-    
-    // For each element, compute its depth.
-    for (int i = 0; i < n; ++i) {
-        int depth = 0;
-        int current = i;
-        while (current != uf.getParent(current)) {
-            ++depth;
-            current = uf.getParent(current);
-        }
-        TPL += depth;
-    }
-    
-    // Count the number of children for each root.
-    for (int i = 0; i < n; ++i) {
-        if (uf.getParent(i) != i) {
-            int parent = uf.getParent(i);
-            childrenCount[parent]++;
-        }
-    }
-    
-    // For full compression (or path splitting) one may set:
-    // TPU = TPL - (sum of children counts over all roots).
-    // In no-compression, TPU remains 0.
-    long sumChildren = 0;
-    for (int i = 0; i < n; ++i) {
-        if (uf.getParent(i) == i)
-            sumChildren += childrenCount[i];
-    }
-    
+Metrics measureMetrics(const DisjointSet& uf, int n)
+{
     Metrics m;
-    m.totalPathLength = TPL;
-    m.totalPointerUpdates = TPL - sumChildren;  // Should be zero here.
+    for (int v = 0; v < n; ++v) {
+        m.tpl += uf.depth(v);
+        m.tpu += uf.pointerUpdatesDuringFind(v);
+    }
     return m;
 }
 
-// Generate all distinct pairs (i, j) for i != j where i, j ∈ [0, n-1],
-// and then shuffle them with a fixed seed (42) for reproducibility.
-std::vector<std::pair<int, int>> generateDistinctPairs(int n) {
-    std::vector<std::pair<int, int>> pairs;
-    pairs.reserve(n * n - n);
-    for (int i = 0; i < n; ++i) {
-        for (int j = 0; j < n; ++j) {
-            if (i == j)
-                continue;
-            pairs.push_back({i, j});
-        }
-    }
-    std::mt19937 rng(42);
-    std::shuffle(pairs.begin(), pairs.end(), rng);
-    return pairs;
+
+inline std::pair<int,int> indexToPair(long long k)
+{
+    long long i = static_cast<long long>( (1 + std::sqrt(1 + 8.0*k)) / 2 );
+    while (i*(i-1)/2 > k) --i;
+    long long j = k - (i*(i-1))/2;
+    return {static_cast<int>(i), static_cast<int>(j)};
 }
 
-// Experimental driver function.
-// n      : number of elements in the union–find instance.
-// delta  : sampling frequency in terms of block count decrease (e.g., n/10).
-// T      : number of experimental trials.
-void runExperiment(int n, int delta, int T) {
-    // Generate the master list of distinct pairs (shared by all experiments).
-    const std::vector<std::pair<int,int>> masterPairs = generateDistinctPairs(n);
-    
-    // Determine the number of measurement steps.
-    // We measure when the number of distinct blocks drops to:
-//      n - delta + 1, n - 2*delta + 1, ..., and finally 1.
-    int steps = (n - 1) / delta;  
-    // We will record steps+1 measurements (the last measurement when 1 block remains).
-    std::vector<long> accCycle(steps + 1, 0);
-    std::vector<long> accTPL(steps + 1, 0);
-    std::vector<long> accTPU(steps + 1, 0);
-    std::vector<int> countMeasurements(steps + 1, 0);
-    
-    // Use a constant seed for each experiment to ensure reproducibility.
-    const unsigned seed = 42;
-    
-    // Run T trials.
-    for (int t = 0; t < T; ++t) {
-        // For each trial, use the same master pairs but reshuffle.
-        std::vector<std::pair<int,int>> pairs = masterPairs;
-        std::mt19937 rng(seed);
-        std::shuffle(pairs.begin(), pairs.end(), rng);
-        
-        // Create a new union–find instance.
-        DisjointSet* uf = new QuickUnion(n);
-        int cycleCount = 0;
-        // Set the first measurement threshold (for n = 1000, delta = 100, threshold = 901).
-        int nextMeasurementThreshold = n - delta + 1;
-        int measurementIndex = 0;
-        
-        // Process each union until only one block remains.
-        for (const auto &p : pairs) {
-            uf->unionSets(p.first, p.second);
-            cycleCount++;
-            
-            int currentBlocks = uf->countSets();
-            // When the distinct block count reaches or drops below the current threshold, record a measurement.
-            if (currentBlocks <= nextMeasurementThreshold) {
-                Metrics m = measureMetrics(*uf, n);
-                accCycle[measurementIndex] += cycleCount;
-                accTPL[measurementIndex] += m.totalPathLength;
-                accTPU[measurementIndex] += m.totalPointerUpdates;
-                countMeasurements[measurementIndex]++;
-                
-                // Update the next measurement threshold.
-                if (nextMeasurementThreshold > delta)
-                    nextMeasurementThreshold -= delta;
-                else
-                    nextMeasurementThreshold = 1;
-                measurementIndex++;
-            }
-            
-            if (currentBlocks == 1)
-                break;
+class PairPermutation {
+    public:
+        PairPermutation(long long m, unsigned seed)
+            : perm_(m), idx_(0)
+        {
+            for (long long i = 0; i < m; ++i) perm_[i] = i;
+            std::shuffle(perm_.begin(), perm_.end(), std::mt19937_64(seed));
         }
-        delete uf;
-    }
     
-    std::cout << std::left
-              << std::setw(18) << "Number of Blocks"
-              << std::setw(15) << "CycleCount"
-              << std::setw(15) << "AvgTPL"
-              << std::setw(15) << "AvgTPU"
-              << std::setw(20) << "Normalized TPL"
-              << std::setw(20) << "Normalized TPU"
-              << std::setw(15) << "Total Cost"
-              << std::setw(20) << "Normalized Total Cost"
-              << "\n";
-              
-    // Print a separator line.
-    std::cout << std::string(18+15+15+15+20+20+15+20, '-') << "\n";
-              
-    // Print data rows with the same field widths.
-    for (size_t i = 0; i < accCycle.size(); i++) {
-        if (countMeasurements[i] >= 5) {
-            int numBlocks;
-            if (i < accCycle.size() - 1)
-                numBlocks = (n - delta + 1) - (i * delta);
-            else
-                numBlocks = 1;
-            double avgCycle = static_cast<double>(accCycle[i]) / countMeasurements[i];
-            double avgTPL   = static_cast<double>(accTPL[i])   / countMeasurements[i];
-            double avgTPU   = static_cast<double>(accTPU[i])   / countMeasurements[i];
-            double normalizedTPL = avgTPL / n;
-            double normalizedTPU = avgTPU / n;
-            double totalCost = avgTPL; // for no compression, total cost = TPL
-            double normalizedTotalCost = totalCost / n;
-            
-            std::cout << std::left
-                      << std::setw(18) << numBlocks
-                      << std::setw(15) << avgCycle
-                      << std::setw(15) << avgTPL
-                      << std::setw(15) << avgTPU
-                      << std::setw(20) << normalizedTPL
-                      << std::setw(20) << normalizedTPU
-                      << std::setw(15) << totalCost
-                      << std::setw(20) << normalizedTotalCost
-                      << "\n";
+        bool next(long long &k)
+        {
+            if (idx_ >= perm_.size()) return false;
+            k = perm_[idx_++];
+            return true;
         }
-    }
+    private:
+        std::vector<long long> perm_;
+        size_t                 idx_;
+    };
+
+
+    void runExperiment(int n, int delta, int T,
+        bool csv,
+        double followMult,   
+        double epsilon)  
+{
+const int steps = (n - 1) / delta + 1;
+std::vector<long long> accTPL(steps,0), accTPU(steps,0);
+std::vector<int>       accCnt(steps,0);
+
+const unsigned baseSeed = 42;
+for (int t = 0; t < T; ++t)
+{
+QuickUnion uf(n);
+
+PairPermutation perm(1LL*n*(n-1)/2, baseSeed + t);
+long long k;
+int nextThresh = n - delta + 1;
+int slot       = 0;
+
+while (perm.next(k)) {
+ auto [i,j] = indexToPair(k);
+ uf.unionSets(i,j);
+
+ if (uf.countSets() <= nextThresh) {
+     Metrics m = measureMetrics(uf, n);
+     accTPL[slot] += m.tpl;
+     accTPU[slot] += m.tpu;
+     accCnt[slot] += 1;
+
+     nextThresh   = std::max(1, nextThresh - delta);
+     ++slot;
+     if (uf.countSets()==1) break;
+ }
+}
 }
 
-int main() {
-    int n = 1000;         // Number of elements (small instance).
-    int delta = n / 10;   // Sample whenever the number of blocks decreases by n/10.
-    int T = 20;           // Number of experimental trials.
-    
-    runExperiment(n, delta, T);
+if (!csv) {
+std::cout << std::left
+       << std::setw(18) << "Number of Blocks"
+       << std::setw(15) << "AvgTPL"
+       << std::setw(15) << "AvgTPU"
+       << std::setw(15) << "Cost"
+       << std::setw(15) << "TPL/n"
+       << std::setw(15) << "TPU/n"
+       << std::setw(15) << "Cost/n" << '\n'
+       << std::string(108,'-') << '\n';
+}
+
+for (int s = 0; s < steps; ++s) {
+if (accCnt[s] < 5) continue;
+
+int    blocks = (s < steps-1) ? n - delta + 1 - s*delta : 1;
+double tpl    = double(accTPL[s]) / accCnt[s];
+double tpu    = double(accTPU[s]) / accCnt[s];
+double cost   = followMult * tpl + epsilon * tpu;
+
+if (csv) {
+ if (s == 0) 
+     std::cout << "Blocks,AvgTPL,AvgTPU,Cost,TPL_per_n,TPU_per_n,Cost_per_n\n";
+ std::cout << blocks  << ','
+           << tpl     << ','
+           << tpu     << ','
+           << cost    << ','
+           << tpl/n   << ','
+           << tpu/n   << ','
+           << cost/n  << '\n';
+} else {
+ std::cout << std::left
+           << std::setw(18) << blocks
+           << std::setw(15) << tpl
+           << std::setw(15) << tpu
+           << std::setw(15) << cost
+           << std::setw(15) << tpl/n
+           << std::setw(15) << tpu/n
+           << std::setw(15) << cost/n << '\n';
+}
+}
+}
+
+int main(int argc, char* argv[])
+{
+
+    int     n          = 1000;
+    int     delta      = 100;
+    int     T          = 20;
+    bool    csv        = false;
+    double  epsilon    = 2.0;
+    double  followMult = 1.0;
+
+
+    if (argc == 2) {
+        std::ifstream in(argv[1]);
+        if (!in) { std::cerr << "Cannot open config file " << argv[1] << '\n'; return 1; }
+        json cfg; in >> cfg;
+        if (cfg.contains("n"))          n          = cfg["n"];
+        if (cfg.contains("delta"))      delta      = cfg["delta"];
+        if (cfg.contains("T"))          T          = cfg["T"];
+        if (cfg.contains("csv"))        csv        = cfg["csv"];
+        if (cfg.contains("epsilon"))    epsilon    = cfg["epsilon"];
+        if (cfg.contains("followMult")) followMult = cfg["followMult"];
+    }
+
+    runExperiment(n, delta, T, csv, followMult, epsilon);
     return 0;
 }

@@ -1,0 +1,9 @@
+{
+	"n"          : 5000,
+	"delta"      : 250,
+	"T"          : 30,
+	"csv"        : true,
+	"epsilon"    : 3.0,
+	"followMult" : 1.0
+  }
+  
