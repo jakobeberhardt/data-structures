@@ -8,6 +8,11 @@
 #include <algorithm>
 #include <fstream>
 #include "json.hpp"
+#include "UnionPolicies.h"
+#include "FindPolicies.h"
+#include "UnionFind.h"
+#include <memory>     
+#include <functional>
 using json = nlohmann::json;
 
 struct Metrics { long tpl = 0; long tpu = 0; };
@@ -52,10 +57,33 @@ class PairPermutation {
     };
 
 
-    void runExperiment(int n, int delta, int T,
-        bool csv,
-        double followMult,   
-        double epsilon)  
+    using Factory = std::function<std::unique_ptr<DisjointSet>(int)>;
+
+    struct Variant {
+        std::string name;
+        double      followMult;
+        Factory     make;
+    };
+    
+    const std::vector<Variant> variants = {
+        {"QU_NC", 1.0, [] (int n){ return std::make_unique<UnionFind<QU,NC>>(n); }},
+        {"QU_FC", 2.0, [] (int n){ return std::make_unique<UnionFind<QU,FC>>(n); }},
+        {"QU_PS", 1.0, [] (int n){ return std::make_unique<UnionFind<QU,PS>>(n); }},
+        {"QU_PH", 1.0, [] (int n){ return std::make_unique<UnionFind<QU,PH>>(n); }},
+        {"UW_NC", 1.0, [] (int n){ return std::make_unique<UnionFind<UW,NC>>(n); }},
+        {"UW_FC", 2.0, [] (int n){ return std::make_unique<UnionFind<UW,FC>>(n); }},
+        {"UW_PS", 1.0, [] (int n){ return std::make_unique<UnionFind<UW,PS>>(n); }},
+        {"UW_PH", 1.0, [] (int n){ return std::make_unique<UnionFind<UW,PH>>(n); }},
+        {"UR_NC", 1.0, [] (int n){ return std::make_unique<UnionFind<UR,NC>>(n); }},
+        {"UR_FC", 2.0, [] (int n){ return std::make_unique<UnionFind<UR,FC>>(n); }},
+        {"UR_PS", 1.0, [] (int n){ return std::make_unique<UnionFind<UR,PS>>(n); }},
+        {"UR_PH", 1.0, [] (int n){ return std::make_unique<UnionFind<UR,PH>>(n); }}
+    };
+    
+
+void runExperiment(int n, int delta, int T,
+                   bool csv, double followMult, double epsilon,
+                   const Factory& makeUF)
 {
 const int steps = (n - 1) / delta + 1;
 std::vector<long long> accTPL(steps,0), accTPU(steps,0);
@@ -64,7 +92,8 @@ std::vector<int>       accCnt(steps,0);
 const unsigned baseSeed = 42;
 for (int t = 0; t < T; ++t)
 {
-QuickUnion uf(n);
+
+auto uf = makeUF(n); 
 
 PairPermutation perm(1LL*n*(n-1)/2, baseSeed + t);
 long long k;
@@ -72,20 +101,21 @@ int nextThresh = n - delta + 1;
 int slot       = 0;
 
 while (perm.next(k)) {
- auto [i,j] = indexToPair(k);
- uf.unionSets(i,j);
+    auto [i,j] = indexToPair(k);
+    uf->unionSets(i,j);                       //  -> instead of .
 
- if (uf.countSets() <= nextThresh) {
-     Metrics m = measureMetrics(uf, n);
+    if (uf->countSets() <= nextThresh) {      //  -> here as well
+        Metrics m = measureMetrics(*uf, n);
      accTPL[slot] += m.tpl;
      accTPU[slot] += m.tpu;
      accCnt[slot] += 1;
 
      nextThresh   = std::max(1, nextThresh - delta);
      ++slot;
-     if (uf.countSets()==1) break;
- }
+     if (uf->countSets() == 1) break;      //  ->
+    }
 }
+
 }
 
 if (!csv) {
@@ -154,6 +184,9 @@ int main(int argc, char* argv[])
         if (cfg.contains("followMult")) followMult = cfg["followMult"];
     }
 
-    runExperiment(n, delta, T, csv, followMult, epsilon);
+for (const auto& v : variants) {
+    std::cout << "\n=== " << v.name << " ===\n";
+    runExperiment(n, delta, T, csv, v.followMult, epsilon, v.make);
+}
     return 0;
 }
