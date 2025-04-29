@@ -2,7 +2,7 @@ CXX      = g++
 CXXFLAGS = -std=c++17 -O2 -Wall -Iinclude
 TARGET   = benchmark
 
-SRCS = main.cpp QuickUnion.cpp
+SRCS = main.cpp
 OBJS = $(SRCS:.cpp=.o)
 
 all: $(TARGET)
