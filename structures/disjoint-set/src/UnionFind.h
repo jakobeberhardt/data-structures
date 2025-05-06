@@ -24,8 +24,8 @@ public:
     }
 
     int find(int x) override {
-        long dummy=0;
-        return F::find(x,parent_,dummy);
+        long upd=0;
+        return F::find(x,parent_,upd);
     }
 
     void unionSets(int a,int b) override {

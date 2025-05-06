@@ -82,13 +82,12 @@ class PairPermutation {
 
 void runExperiment(int n, int delta, int T,
                    bool csv, double followMult, double epsilon,
-                   const Factory& makeUF)
+                   const Factory& makeUF, unsigned baseSeed)
 {
     const int steps = (n - 1) / delta + 1;
     std::vector<long long> accTPL(steps,0), accTPU(steps,0);
     std::vector<int>       accCnt(steps,0);
 
-    const unsigned baseSeed = 42;
     for (int t = 0; t < T; ++t)
     {
 
@@ -168,6 +167,7 @@ int main(int argc, char* argv[])
     int     T          = 20;
     bool    csv        = false;
     double  epsilon    = 2.0;
+    unsigned seed = 42;
 
     if (argc == 2) {
         std::ifstream in(argv[1]);
@@ -178,11 +178,12 @@ int main(int argc, char* argv[])
         if (cfg.contains("T"))          T          = cfg["T"];
         if (cfg.contains("csv"))        csv        = cfg["csv"];
         if (cfg.contains("epsilon"))    epsilon    = cfg["epsilon"];
+        if (cfg.contains("seed")) seed = cfg["seed"];
     }
 
 for (const auto& v : variants) {
     std::cout << "\n=== " << v.name << " ===\n";
-    runExperiment(n, delta, T, csv, v.followMult, epsilon, v.make);
+    runExperiment(n, delta, T, csv, v.followMult, epsilon, v.make, seed);
 }
     return 0;
 }
