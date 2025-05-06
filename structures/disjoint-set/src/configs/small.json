@@ -2,8 +2,8 @@
 	"n"          : 1000,
 	"delta"      : 100,
 	"T"          : 20,
-	"csv"        : false,
+	"csv"        : true,
 	"epsilon"    : 2.0,
-	"seed"		 : 43
+	"seed"		 : 42
   }
   
