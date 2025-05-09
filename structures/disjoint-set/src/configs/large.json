@@ -2,7 +2,7 @@
 	"n"          : 10000,
 	"delta"      : 1000,
 	"T"          : 20,
-	"csv"        : true,
+	"csv"        : false,
 	"epsilon"    : 2.0,
 	"seed"		 : 42
   }

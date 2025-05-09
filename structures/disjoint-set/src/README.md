@@ -5,6 +5,7 @@
 ## Project Structure
 
 - **root/**: Contains the implementation and instrumentation including the Makefile to build the executable
+- **data/**: The data obtained from the benchmarks which are used in the report
 - **configs/**: Includes the config files used to configure the benchmarks
 - **util/**: Includes irrelevant helper functions, e.g. for plotting
 
