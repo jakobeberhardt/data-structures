@@ -1,93 +1,103 @@
 #include <bits/stdc++.h>
 using namespace std;
 
-const int MAX_TOTAL_CHARS = 1000000; 
-const int MAX_NODES       = MAX_TOTAL_CHARS + 1;  
-
-struct Node {
-    int next[26];
-    int cnt = 0;
-    bool term = false;
-
-    Node() { fill(begin(next), end(next), -1); }
+struct Edge {        
+    char ch;           
+    int  to;            
+    int  next;          
 };
 
-struct SuffixDS {
-    vector<Node> t;
-    vector<int>  path;     
-    SuffixDS() {
-        t.reserve(MAX_NODES);
-        t.emplace_back();          
-        path.reserve(100);         
+struct Node {
+    int  first;       
+    int  subCnt;       
+    bool term;          
+    Node() : first(-1), subCnt(0), term(false) {}
+};
+
+class Trie {
+    vector<Node> V;     
+    vector<Edge> E;    
+
+    int find_child(int v, char c) const {
+        for (int e = V[v].first; e != -1; e = E[e].next)
+            if (E[e].ch == c) return E[e].to;
+        return -1;
+    }
+    int add_child(int v, char c) {
+        int u = (int)V.size();
+        V.emplace_back();
+        int e = (int)E.size();
+        E.push_back({c, u, V[v].first});
+        V[v].first = e;
+        return u;
+    }
+
+public:
+    Trie() { V.emplace_back(); }             
+
+    void insert(const string& s) {
+        int v = 0;
+        static int path[105]; int plen = 0;      
+        
+        for (int i = (int)s.size() - 1; i >= 0; --i) {
+            char c = s[i];
+            int u = find_child(v, c);
+            if (u == -1) u = add_child(v, c);
+            v = u;
+            path[plen++] = v;
+        }
+        if (V[v].term) return;                 
+        V[v].term = true;
+        for (int i = 0; i < plen; ++i) ++V[path[i]].subCnt;
+    }
+
+    void erase(const string& s) {
+        int v = 0;
+        static int path[105]; int plen = 0;
+        for (int i = (int)s.size() - 1; i >= 0; --i) {
+            v = find_child(v, s[i]);
+            if (v == -1) return;                  
+            path[plen++] = v;
+        }
+        if (!V[v].term) return;                   
+        V[v].term = false;
+        for (int i = 0; i < plen; ++i) --V[path[i]].subCnt;
+    }
+
+    int count_suffix(const string& s) const {
+        int v = 0;
+        for (int i = (int)s.size() - 1; i >= 0; --i) {
+            v = find_child(v, s[i]);
+            if (v == -1) return 0;
+        }
+        return V[v].subCnt;
     }
 
     void reset() {
-        t.clear();                  
-        t.emplace_back();
-    }
-
-    bool insert(const string& s) {
-        int v = 0;  path.clear();
-        for (char ch : s) {
-            int c = ch - 'a';
-            if (t[v].next[c] == -1) {
-                t[v].next[c] = (int)t.size();
-                t.emplace_back();
-            }
-            v = t[v].next[c];
-            path.push_back(v);
-        }
-        if (t[v].term) return true;
-        t[v].term = true;
-        for (int u : path) ++t[u].cnt;
-        return false;
-    }
-
-    bool erase(const string& s) {
-        int v = 0;  path.clear();
-        for (char ch : s) {
-            int c = ch - 'a';
-            v = t[v].next[c];
-            if (v == -1) return false; 
-            path.push_back(v);
-        }
-        if (!t[v].term) return false;
-        t[v].term = false;
-        for (int u : path) --t[u].cnt;
-        return true;
-    }
-
-    int count(const string& s) const {
-        int v = 0;
-        for (char ch : s) {
-            int c = ch - 'a';
-            v = t[v].next[c];
-            if (v == -1) return 0;
-        }
-        return t[v].cnt;
+        V.clear(); E.clear();
+        V.emplace_back();
     }
 };
 
 int main() {
+    ios::sync_with_stdio(false);
     cin.tie(nullptr);
 
-    SuffixDS D;
-    string s;
-    char   op;
+    Trie D;
+    string op, s;
 
     while (cin >> op) {
-        if (op == 'R') {
+        if (op[0] == 'R') { 
             D.reset();
             cout << "---\n";
-            continue;
+        } else {
+            cin >> s;
+            switch (op[0]) {
+                case 'I': D.insert(s); break;
+                case 'E': D.erase(s);  break;
+                case 'C': cout << D.count_suffix(s) << '\n'; break;
+            }
         }
-
-        cin >> s;
-        reverse(s.begin(), s.end());   
-
-        if (op == 'I')      D.insert(s);
-        else if (op == 'E') D.erase(s);
-        else if (op == 'C') cout << D.count(s) << '\n';
     }
     return 0;
 }
