@@ -12,14 +12,16 @@ class BSTPtr : public IBST<Key> {
     };
 
     std::unique_ptr<Node> root_;
+    std::size_t node_cnt_ = 0;
 
-    static void insert(std::unique_ptr<Node>& p, const Key& k) {
+    void insertNode(std::unique_ptr<Node>& p, const Key& k) {
         if (!p) {
             p = std::make_unique<Node>(k);
+            ++node_cnt_;                         
         } else if (k < p->key) {
-            insert(p->l, k);
+            insertNode(p->l, k);
         } else if (k > p->key) {
-            insert(p->r, k);
+            insertNode(p->r, k);
         }
     }
 
@@ -31,7 +33,10 @@ class BSTPtr : public IBST<Key> {
         }
         return false;
     }
+
 public:
-    void insert  (const Key& k)       override { insert  (root_, k); }
+    void insert(const Key& k) override { insertNode(root_, k); }
     bool contains(const Key& k) const override { return contains(root_, k); }
+
+    std::size_t size_bytes() const override { return node_cnt_ * sizeof(Node); }
 };

@@ -5,7 +5,7 @@
 #include <stdexcept>
 
 
-namespace detail {
+namespace help {
 template<class Key>
 void build_veb(std::vector<Key>& out,
                const std::vector<Key>& sorted, std::size_t lo, std::size_t hi)
@@ -33,7 +33,7 @@ class BSTVEB : public IBST<Key> {
                        inserts_.end());
 
         a_.reserve(inserts_.size());
-        detail::build_veb(a_, inserts_, 0, inserts_.size());
+        help::build_veb(a_, inserts_, 0, inserts_.size());
         frozen_ = true;
     }
 
@@ -66,4 +66,6 @@ public:
         const_cast<BSTVEB*>(this)->freeze();   
         return containsRec(k, 0, a_.size(), 0);
     }
+
+     std::size_t size_bytes() const override { return a_.size() * sizeof(Key); }
 };
