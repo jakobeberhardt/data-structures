@@ -1,0 +1,24 @@
+name: Unit tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential g++-13
+          echo "CXX=g++-13" >> "$GITHUB_ENV"
+
+      - name: Run unit tests
+        working-directory: structures/eytzinger
+        run: make test
