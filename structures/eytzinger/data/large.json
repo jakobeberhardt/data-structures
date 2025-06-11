@@ -3,5 +3,6 @@
   "q"   : 10000000,
   "T"   : 5,
   "csv" : false,
-  "seed": 123
+  "seed": 123,
+  "measure_construction": false
 }

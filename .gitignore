@@ -32,5 +32,6 @@
 *.out
 *.app
 bst-bench
+bst-test
 .idea
 .vscode
