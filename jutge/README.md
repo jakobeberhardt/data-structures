@@ -14,7 +14,7 @@ __RBST, treap__
 
 __segment tree__
 - P27780
-- P99729
+- ~~P99729~~
 - P39136
 
 __minimum spanning tree__
