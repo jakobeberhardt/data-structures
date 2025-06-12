@@ -8,6 +8,8 @@
 #include "../include/BSTEytPrefetchTwo.h"
 #include "../include/BSTEytPrefetchThree.h"
 #include "../include/BSTEytPrefetchFour.h"
+#include "../include/BSTEytPrefetchProb.h"
+
 
 template<class Tree>
 void sanity_check(std::size_t N = 1'024)
@@ -31,6 +33,8 @@ int main()
     sanity_check< BSTEytPrefTwo<int>    >();
     sanity_check< BSTEytPrefThree<int>  >();
     sanity_check< BSTEytPrefFour<int>   >();
+    sanity_check< BSTEytPrefProb<int>   >();
+
 
     std::cout << "all imps contains() tests passed\n";
     return 0;

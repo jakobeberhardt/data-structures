@@ -11,6 +11,9 @@ TEST_BIN   := bst-tests
 
 TEST_CXXFLAGS := $(filter-out -DNDEBUG,$(CXXFLAGS))
 
+.PHONY: all
+all: $(BIN)
+
 .PHONY: test
 test: $(TEST_BIN)
 	@echo "Running unit tests…"
@@ -19,12 +22,12 @@ test: $(TEST_BIN)
 $(TEST_BIN): $(TEST_OBJ)
 	$(CXX) $(TEST_CXXFLAGS) $^ -o $@
 
+$(BIN): $(OBJ)
+	$(CXX) $(CXXFLAGS) $^ -o $@
+
 build/test/%.o: test/%.cpp
 	@mkdir -p $(@D)
 	$(CXX) $(TEST_CXXFLAGS) -c $< -o $@
-
-$(BIN): $(OBJ)
-	$(CXX) $(CXXFLAGS) $^ -o $@
 
 build/%.o: src/%.cpp
 	@mkdir -p $(@D)
@@ -32,4 +35,4 @@ build/%.o: src/%.cpp
 
 .PHONY: clean
 clean:
-	rm -rf build $(BIN) bst-tests
+	rm -rf build $(BIN) $(TEST_BIN)

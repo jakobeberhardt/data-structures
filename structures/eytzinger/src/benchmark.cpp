@@ -5,6 +5,7 @@
 #include "BSTEytPrefetchTwo.h"
 #include "BSTEytPrefetchThree.h"
 #include "BSTEytPrefetchFour.h"
+#include "BSTEytPrefetchProb.h"
 #include "PerfCounters.h"
 #include <vector>
 #include <random>
@@ -67,6 +68,7 @@ const std::vector<Variant> variants = {
     {"BST_EYT_PREF_TWO", [] { return std::make_unique<BSTEytPrefTwo<int>>(); }},
     {"BST_EYT_PREF_THREE", [] { return std::make_unique<BSTEytPrefThree<int>>(); }},
     {"BST_EYT_PREF_FOUR", [] { return std::make_unique<BSTEytPrefFour<int>>(); }},
+    {"BST_EYT_PREF_PROB", [] { return std::make_unique<BSTEytPrefProb<int>>(); }},
 };
 
 void runExperiment(int n, int q, int T, bool csv,
@@ -147,7 +149,7 @@ void runExperiment(int n, int q, int T, bool csv,
               << std::setw(14) << std::setprecision(6) << ns_per_op
               << std::setw(12) << std::setprecision(0) << avg_c_refs
               << std::setw(12) << avg_c_miss
-              << std::setw(12) << miss_per_op
+              << std::setw(12) << std::setprecision(2) << miss_per_op
               << std::setw(10) << std::setprecision(6) << miss_rate
               << std::setw(6)  << std::setprecision(1) << bytes_mb
               << std::setw(12) << std::setprecision(0) << avg_l1_refs
