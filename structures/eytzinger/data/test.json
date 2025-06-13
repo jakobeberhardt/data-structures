@@ -2,7 +2,7 @@
   "n"   : 1000000,
   "q"   : 1000000,
   "T"   : 1,
-  "csv" : false,
+  "csv" : true,
   "seed": 123,
   "measure_construction": false
 }

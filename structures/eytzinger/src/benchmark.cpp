@@ -217,7 +217,7 @@ int main(int argc, char* argv[])
               << std::setw(10) << "br_rate"
               << '\n'
               << std::string(255, '-') << '\n';
-}else {
+}else if(csv && impl == "BST_VEB" && 1 == 2) {
         std::cout << "impl,n,q,total_ns,total_s,ns_per_search,"
                      "cache_refs,cache_misses,misses_per_search,miss_rate,bytes,"
                      "l1_refs,l1_misses,l1_rate,"

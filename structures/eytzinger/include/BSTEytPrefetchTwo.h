@@ -18,10 +18,10 @@ public:
             if (l < a.size()) __builtin_prefetch(&a[l], 0, 1);
             if (r < a.size()) __builtin_prefetch(&a[r], 0, 1);
 
-            std::size_t ll = 4*i + 3;   // (2*l)+1
-            std::size_t lr = ll + 2;    // (2*l)+3
-            std::size_t rl = 4*i + 5;   // (2*r)+1
-            std::size_t rr = rl + 2;    // (2*r)+3
+            std::size_t ll = 4*i + 3;   
+            std::size_t lr = ll + 2;    
+            std::size_t rl = 4*i + 5;   
+            std::size_t rr = rl + 2;    
 
             if (ll < a.size()) __builtin_prefetch(&a[ll], 0, 1);
             if (lr < a.size()) __builtin_prefetch(&a[lr], 0, 1);
