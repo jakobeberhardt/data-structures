@@ -88,6 +88,7 @@ void runExperiment(int n, int delta, int T,
     std::vector<long long> accCycles(steps,0);
     std::vector<long long> accTPL(steps,0), accTPU(steps,0);
     std::vector<int>       accCnt(steps,0);
+    std::vector<long long> accOps(steps,0);
 
     for (int t = 0; t < T; ++t)
     {
@@ -100,7 +101,7 @@ void runExperiment(int n, int delta, int T,
     int slot       = 0;
 
     while (perm.next(k)) {
-        ++ops;
+        ++ops; 
         auto [i,j] = indexToPair(k);
         uf->unionSets(i,j);
 
@@ -109,7 +110,8 @@ void runExperiment(int n, int delta, int T,
         accTPL[slot] += m.tpl;
         accTPU[slot] += m.tpu;
         accCnt[slot] += 1;
-        accCycles[slot] += ops;
+        accOps[slot] += ops;
+        accCnt[slot] += 1;
 
         nextThresh   = std::max(1, nextThresh - delta);
         ++slot;
@@ -122,14 +124,15 @@ void runExperiment(int n, int delta, int T,
     if (!csv) {
         std::cout << std::left
             << std::setw(18) << "Number of Blocks"
-            << std::setw(15) << "Cycle count" 
+            << std::setw(15) << "TotCycles" 
+            << std::setw(15) << "AvgCycles"  
             << std::setw(15) << "AvgTPL"
             << std::setw(15) << "AvgTPU"
             << std::setw(15) << "Cost"
             << std::setw(15) << "TPL/n"
             << std::setw(15) << "TPU/n"
             << std::setw(15) << "Cost/n" << '\n'
-            << std::string(123,'-') << '\n';
+            << std::string(138,'-') << '\n'; 
     }
 
     for (int s = 0; s < steps; ++s) {
@@ -139,24 +142,27 @@ void runExperiment(int n, int delta, int T,
     double tpl    = double(accTPL[s]) / accCnt[s];
     double tpu    = double(accTPU[s]) / accCnt[s];
     double cost   = followMult * tpl + epsilon * tpu;
-    long   cycles = std::llround( double(accCycles[s]) / accCnt[s] );
+    long   totCycles = accOps[s]; 
+    double avgCycles = double(totCycles)/accCnt[s];
 
     if (csv) {
         if (s == 0)
-            std::cout << "Blocks,CycleCount,AvgTPL,AvgTPU,Cost,"
+            std::cout << "Blocks,TotCycles,AvgCycles,AvgTPL,AvgTPU,Cost,"
                          "TPL_per_n,TPU_per_n,Cost_per_n\n";
-        std::cout << blocks << ','
-                  << cycles << ','
-                  << tpl    << ','
-                  << tpu    << ','
-                  << cost   << ','
-                  << tpl/n  << ','
-                  << tpu/n  << ','
-                  << cost/n << '\n';
+        std::cout << blocks   << ','
+                  << totCycles<< ','
+                  << avgCycles<< ','
+                  << tpl      << ','
+                  << tpu      << ','
+                  << cost     << ','
+                  << tpl/n    << ','
+                  << tpu/n    << ','
+                  << cost/n   << '\n';
     } else {
         std::cout << std::left
                   << std::setw(18) << blocks
-                  << std::setw(15) << cycles
+                  << std::setw(15) << totCycles
+                  << std::setw(15) << avgCycles
                   << std::setw(15) << tpl
                   << std::setw(15) << tpu
                   << std::setw(15) << cost
