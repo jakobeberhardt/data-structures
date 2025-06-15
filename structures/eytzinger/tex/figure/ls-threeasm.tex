@@ -1,0 +1,15 @@
+\begin{lstlisting}
+...
+prefetcht2 BYTE PTR [rdx+r8*4]
+add    rcx,0x4
+cmp    rcx,rax
+jae    1919c <BSTEytPrefThree<int>::contains(int const&) const+0x10c>
+prefetcht2 BYTE PTR [rdx+rdi*8+0x18]
+mov    edi,DWORD PTR [rdx+rdi*1-0x4]
+cmp    DWORD PTR [rbx],edi
+je     191c0 <BSTEytPrefThree<int>::contains(int const&) const+0x130>
+cmovl  rsi,r9
+...
+\end{lstlisting}
+\captionof{lstlisting}[Assembly of the \texttt{BSTEytPrefThree<int>::contains} Function]{Assembly of the \texttt{BSTEytPrefThree<int>::contains} function which uses the predicated \texttt{cmovl} instruction reported as \texttt{BST\_EYT\_PREF\_THREE\_IFC}.}
+\label{lst:asm-preftwocmov}

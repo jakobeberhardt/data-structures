@@ -1,0 +1,47 @@
+\begin{figure}[ht]
+\centering
+\begin{tabular}{ c c c }
+\adjustbox{valign=m}{%
+\begin{minipage}{0.25\textwidth}
+\begin{lstlisting}[language=C++, basicstyle=\ttfamily\small]
+if (x > 0) y = 10;
+else y = 20;
+\end{lstlisting}
+\end{minipage}
+}
+&
+\adjustbox{valign=m}{%
+\begin{tikzpicture}
+    \draw[->, line width=0.5pt] (0,0.5) -- (2, 1.5);
+    \draw[->, line width=0.5pt] (0,-0.5) -- (2, -1.5);
+\end{tikzpicture}
+}
+&
+\adjustbox{valign=m}{%
+\begin{minipage}{0.4\textwidth}
+\textbf{Before If-Conversion:}
+\begin{lstlisting}[basicstyle=\ttfamily\small]
+    cmp eax, 0
+    jg greater
+    mov ebx, 20
+    jmp end
+greater:
+    mov ebx, 10
+end:
+\end{lstlisting}
+
+\vspace{0.8cm}
+
+\textbf{With If-Conversion:}
+\begin{lstlisting}[basicstyle=\ttfamily\small]
+    mov ebx, 20
+    cmp eax, 0
+    mov ecx, 10
+    cmovg ebx, ecx
+\end{lstlisting}
+\end{minipage}
+}
+\end{tabular}
+\caption[If-conversion example with x86 \texttt{cmov}]{If-conversion applied to a conditional assignment in C++, showing both the original x86 assembly with branching and the optimized version using the conditional move (\texttt{cmov}) instruction.}
+\label{fig:ifconv}
+\end{figure}

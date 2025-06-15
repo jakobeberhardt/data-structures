@@ -1,0 +1,501 @@
+\documentclass{article}
+\usepackage{graphicx} 
+\usepackage{tikz}
+\usetikzlibrary{positioning, arrows.meta}
+\usepackage{caption}
+\usepackage[T1]{fontenc}
+\usepackage{xcolor}          
+\usepackage{listings} 
+\usepackage{amsmath}
+\usepackage{booktabs} 
+\usetikzlibrary{matrix}
+\usepackage{float}
+\usepackage{subcaption}
+\usetikzlibrary{plotmarks}          
+\usepackage{pgfplots}                 
+\pgfplotsset{compat=1.18}            
+\usepgfplotslibrary{groupplots}  
+% \usepackage[
+%   left=2.5cm,
+%   right=2.5cm,
+%   top=2.0cm,
+%   bottom=2.0cm
+% ]{geometry}
+\usepackage[
+    backend=biber,   
+    style=numeric,      
+    sorting=none         
+]{biblatex}
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=false,
+    pdfborder={0 0 0}
+}
+\input{listings}
+\lstset{style=cppclean}
+\addbibresource{references.bib}
+\usepackage{adjustbox}    % For \adjustbox
+\captionsetup{hypcap=false}
+
+
+\definecolor{hwloc-color-255-255-255}{RGB}{255,255,255}
+\definecolor{hwloc-color-0-0-0}{RGB}{0,0,0}
+\definecolor{hwloc-color-255-255-255}{RGB}{255,255,255}
+\definecolor{hwloc-color-255-255-255}{RGB}{255,255,255}
+\definecolor{hwloc-color-210-231-164}{RGB}{210,231,164}
+\definecolor{hwloc-color-231-255-181}{RGB}{231,255,181}
+\definecolor{hwloc-color-231-255-181}{RGB}{231,255,181}
+\definecolor{hwloc-color-190-190-190}{RGB}{190,190,190}
+\definecolor{hwloc-color-255-255-255}{RGB}{255,255,255}
+\definecolor{hwloc-color-239-223-222}{RGB}{239,223,222}
+\definecolor{hwloc-color-242-232-232}{RGB}{242,232,232}
+\definecolor{hwloc-color-255-255-255}{RGB}{255,255,255}
+\definecolor{hwloc-color-190-210-149}{RGB}{190,210,149}
+\definecolor{hwloc-color-222-222-222}{RGB}{222,222,222}
+\definecolor{hwloc-color-255-255-255}{RGB}{255,255,255}
+\definecolor{hwloc-color-255-255-255}{RGB}{255,255,255}
+\definecolor{hwloc-color-0-255-0}{RGB}{0,255,0}
+\definecolor{hwloc-color-255-0-0}{RGB}{255,0,0}
+\definecolor{hwloc-color-255-255-0}{RGB}{255,255,0}
+
+
+\title{Eytzinger Binary Search Trees: Data Prefetching \& Branch Prediction}
+\author{Jakob Eberhardt \\ \texttt{jakob.eberhardt@estudiantat.upc.edu}}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+\newpage
+\setcounter{page}{1}
+\tableofcontents
+\lstlistoflistings
+\listoffigures
+\listoftables
+\newpage 
+
+
+\section{Introduction \& Problem Statement}
+In this project, we will implement and compare different pointer-less implementations of binary search trees (BST) in terms of overall performance, cache-friendliness, and efficiency. We will study the impact of increasingly aggressive prefetching regarding the performance and cache pressure. Additionally, we will study how more complex and sophisticated implementations which tend to add more branching to our program will affect the CPUs ability to correctly predict the branch direction which can have a major impact on overall performance. 
+
+\subsection{The Cost of Branch Misprediction}
+\label{sec:costo_of_branch_prediction}
+The reason why branch mispredictions represent a big obstacle for modern machines has to do with the design choices described so far. Another central component of modern designs is branch predictors. Branch predictors allow for one side of conditional branches to be speculatively executed before the branch is committed. When the speculated side and the evaluated side coincide, we have the benefit of keeping the pipeline full and executing instructions ahead of time. When these speculations fail, the speculatively executed instructions have to be discarded and the correct branch target needs to be executed. Due to out-of-order execution, between the time the branch is speculatively executed and the time it is evaluated, a high number of instructions might have been retired. In addition to this, as the pipelines are deep, several cycles have to pass before the pipeline is filled again. Based on the work of Kwan Lin et al.~\cite{lin2019branch}, branch misprediction accounts for 20\% of the IPC in modern processors and represents the main limit to having deeper, more efficient pipelines. A good empirical average measure of the cost of a branch misprediction comes from the weight used in the heuristics of \textit{LLVM}~\cite{Lattner2004LLVM} reported in table \ref{tab:misprediction_penalty}.
+
+\begin{table}[H]
+    \captionsetup{type=table}
+    \centering
+    \input{tab_branch_misprediction}
+    \caption[Branch Misprediction Penalty]{Branch Misprediction Penalty and Optimistic Load Cost used in \textit{LLVM}'s heuristics for various Intel and ARM architectures.}
+    \label{tab:misprediction_penalty}
+\end{table}
+
+\section{Implementation}
+In the following, we will introduce the seven binary search tree implementations. Listing \ref{lst:interface} shows the common interface. It consists of the \texttt{insert} function which will add an arbitrary comparable key, e.g. an integer value. The boolean function \texttt{contains} will return true or false depending on the presence of the key in the tree. The helper function \texttt{size\_bytes()} returns the memory needed to hold all keys which is important if we want to interpret and analyze cache behavior later. 
+\begin{lstlisting}[
+    caption={[Abstract Interface for BSTs in \texttt{IBST.h}]Abstract interface class for our Binary Search Tree implementation in \texttt{IBST.h}},
+    label={lst:interface}
+]
+template<class Key>
+class IBST {
+public:
+    virtual void insert(const Key& k)                = 0;
+    virtual bool contains(const Key& k)        const = 0;
+    virtual std::size_t size_bytes()           const = 0;
+    virtual ~IBST() = default;
+};
+\end{lstlisting}
+
+
+\subsection{VanEmde-Boas Tree}
+The VanEmde-Boas tree is a recursive method to lay out the tree in memory as a perfectly balanced binary search tree in a pointer-free array such that nodes likely to be visited together sit close in memory or ideally in the same cache line. To this end, we choose each segment’s median as the root, then recursively write the left half immediately after it and the right half after the left subtree, producing a so-called \textit{cache oblivious} layout, which aims at reducing cache misses independently of the underlying architecture of the cache memories. This process guarantees every subtree occupies one contiguous power-of-two block, so the algorithm can compute child-root positions with simple index arithmetic instead of pointers, as can be seen in listing~\ref{lst:bstveb-hs}. The query helper \texttt{containsRec} takes the candidate key plus the inclusive bounds \texttt{[lo, hi)} and the current root index \texttt{idx}, hence, it works without any need to chase a pointer across the heap. After comparing the search key to \texttt{a\_[idx]}, the function either recurses into \texttt{left\_idx}, which is located one slot past the root, or into \texttt{right\_idx} which is offset by the left-subtree size. This shrinks the interval by half each step. Because the layout keeps each level’s nodes on adjacent cache lines, a lookup still needs only $\mathcal{O}(\log n)$ probes but typically touches far fewer cache lines than a pointer-based tree, giving a higher performance in practice. The full code can be seen in the appendix listing~\ref{lst:bstveb-h}.
+\begin{lstlisting}
+bool containsRec(const Key& k,
+                     std::size_t lo, std::size_t hi, std::size_t idx) const
+    {
+        if (lo >= hi) return false;            
+
+        const Key& key = a_[idx];
+        if (k == key) return true;
+
+        std::size_t mid        = (lo + hi) / 2;
+        std::size_t left_size  = mid - lo;    
+        std::size_t left_idx   = idx + 1;   
+        std::size_t right_idx  = idx + 1 + left_size;
+
+        return (k < key)
+             ? containsRec(k, lo, mid,           left_idx)
+             : containsRec(k, mid + 1, hi,       right_idx);
+    }
+\end{lstlisting}
+\captionof{lstlisting}[VanEmbden-Boad \texttt{contains} function in \texttt{BSTVEB.h}]{Overview of the recursive Van Emde-Boas layout search-tree implementation in \texttt{BSTVEB.h} reported as \texttt{BST\_VEB}.}
+\label{lst:bstveb-hs}
+
+
+\subsection{Eytzinger Tree}
+\label{sec:eyplain}
+The Eytzinger layout~\cite{khuong2017arraylayoutscomparisonbasedsearching} writes a complete binary search tree into an array in breadth-first order, so a node at position \texttt{i} has children at \texttt{2i + 1} and \texttt{2i + 2}. The array is built recursively, as can be seen in listing~\ref{lst:bsteyt-hs}. During construction, an in-order traversal over the sorted keys stores each value into \texttt{arr\_} while recursing first to \texttt{2idx + 1}, then the current slot, then \texttt{2idx + 2}, guaranteeing the array still represents a valid BST. Unlike the van Emde Boas layout, which aims at packing every recursively balanced subtree into a contiguous cache block, Eytzinger interleaves nodes from different subtrees across successive cache lines. This way, the arithmetic progression \texttt{2i + 1}/\texttt{2i + 2} is so predictable that modern hardware prefetchers can pull the next cache line well before the branch outcome is known. Consequently, the \texttt{contains} loop simply updates \texttt{i} with a multiply-add and performs a comparison, yielding a tight, branch-friendly sequence with no pointer chasing. The full code of the implementation is shown in the appendix listing~\ref{lst:bsteyt-h}.
+
+\begin{lstlisting}
+void buildEyt(std::size_t idx, std::size_t& pos,
+                  const std::vector<Key>& sorted)
+    {
+        if (idx >= sorted.size()) return;
+        buildEyt(2*idx + 1, pos, sorted);
+        arr_[idx] = sorted[pos++];
+        buildEyt(2*idx + 2, pos, sorted);
+    }
+
+...
+
+bool contains(const Key& k) const override {
+        const_cast<BSTEyt*>(this)->freeze();
+
+        std::size_t i = 0;
+        while (i < arr_.size()) {
+            if (k == arr_[i])           return true;
+            i = (k < arr_[i]) ? 2*i + 1 : 2*i + 2;
+        }
+        return false;
+    }
+\end{lstlisting}
+\captionof{lstlisting}[Eytzinger Overview in \texttt{BSTEyt.h}]{An overview of the Eytzinger-layout binary-search-tree implementation in \texttt{BSTEyt} reported as \texttt{BST\_EYT}.}
+\label{lst:bsteyt-hs}
+
+\subsection{Eytzinger Tree with Prefetching}
+\label{sec:prefey}
+In this section, we will extend the standard Eytzinger implementation of section~\ref{sec:eyplain} with programmer-controlled prefetching to benchmark its performance. Prefetching means issuing a non-blocking hint to the memory subsystem so that the cache line holding data which possibly will be needed soon will be pulled into the cache before the CPU really needs it. The goal is to overlap main-memory round-trip with useful computation, turning what would have been a hard stall into ideally zero visible latency. To implement it, we can simply calculate the indices of the to-be-prefetched child nodes and issue a respective prefetch using the function \texttt{\_\_builtin\_prefetch} seen in listing~\ref{lst:bsteyt-pref-hs} which will be discussed in detail in the following. The full implementation can be seen in the appendix listing~\ref{lst:bsteyt-pref-h}
+
+\begin{lstlisting}
+bool contains(const Key& k) const override {
+        const_cast<BSTEytPref*>(this)->Base::freeze();
+
+        const auto& a = Base::arr_;   
+        std::size_t i = 0;
+
+        while (i < a.size()) {
+            std::size_t l = 2*i + 1;
+            std::size_t r = l + 1;
+            if (l < a.size()) __builtin_prefetch(&a[l], 0, 1);
+            if (r < a.size()) __builtin_prefetch(&a[r], 0, 1);
+
+            if      (k == a[i]) return true;
+            else if (k <  a[i]) i = l;
+            else                i = r;
+        }
+        return false;
+    }
+\end{lstlisting}
+\captionof{lstlisting}[Single Prefetch in \texttt{BSTEytPrefetch.h}]{Single-level software
+prefetch variant of the Eytzinger implementation in \texttt{BSTEytPrefetch.h} reported as \texttt{BST\_EYT\_PREF}.}
+\label{lst:bsteyt-pref-hs}
+
+\subsection{Prefetching in Practice}
+Listing~\ref{lst:func-pref-hs} shows the prefetch function and its parameters. The address variable \texttt{addr} is a pointer to the start of the cache line which we want to fetch, in our case \texttt{\&a[l]} or \texttt{\&a[r]} which were formally computed. The second parameter \texttt{rw} hints to the memory controller if we want the line in read-only or read-write mode. Depending on the hardware, we have a better chance of getting the memory line faster if we hint read-only, for example, because the memory system can avoid certain consistency protocols in multi-core systems. Hence, we use \texttt{0} to request a read-only line. Practically, we could still write to it, however. Lastly, we can specify the likelihood that we will reuse the line from \texttt{0-3} using the \texttt{locality} parameter. Zero indicates that we do not want to keep it and that it can be evicted as soon as needed. With locality level three, we ask the memory subsystem to keep the line hot as long as possible. In principle, we could adapt the locality level of a prefetched line to its position in the tree: If it is close to the root or the root itself, we always want it in the cache because many other or all queries will need this cache line. A leaf, however, can be evinced as soon as we find it because it is very unlikely that we will need this node or one close to it again in the future. In our implementations, we always use locality level one.
+
+
+\begin{lstlisting}
+__builtin_prefetch(const void*  addr,
+                   int          rw   = 0,
+                   int          locality = 3);
+\end{lstlisting}
+\captionof{lstlisting}[Prefetch Function and Parameters]{Prefetch Function and Parameters used in \texttt{BSTEytPrefetch.h}}
+\label{lst:func-pref-hs}
+
+Listing~\ref{lst:asm-prefetrch} shows how the prefetching is compiled to machine instructions. In this case, \texttt{lea rax,[rdx+rdx1]} doubles the loop index in \texttt{rdx}, putting $2 \times i$ in \texttt{rax}. Then \texttt{lea rdi,[rax+0x1]} and \texttt{add rax,0x2} compute the child indices \texttt{rdi = 2i + 1} (left) and \texttt{rax = 2i + 2} (right). The comparison \texttt{cmp rdi,rcx} tests whether the left child is beyond the array size, and if not, \texttt{prefetcht2 BYTE PTR [r8+rdi4]} pulls the hopefully soon-to-be-touched element into the L2 cache to hide memory latency.
+\begin{lstlisting}
+lea    rax,[rdx+rdx*1]
+lea    rdi,[rax+0x1]
+add    rax,0x2
+cmp    rdi,rcx
+jae    4e <BSTEytPref<int>::contains(int const&) const+0x4e>
+prefetcht2 BYTE PTR [r8+rdi*4]
+\end{lstlisting}
+\captionof{lstlisting}[Assembly Code of Single Prefetch]{The resulting Assembly code of the Single-level software
+prefetch into the L2 variant of the Eytzinger implementation.}
+\label{lst:asm-prefetrch}
+
+\subsection{Eytzinger Tree with two-level Prefetching}
+This variant of the \texttt{contains} function for the Eytzinger layout works the same as the prefetching implementation seen before in section~\ref{sec:prefey}, but it issues prefetch instructions for two levels of child nodes per step. This way, we can benchmark how more aggressive but plain prefetching affects the performance and cache pressure. As can be seen in listing~\ref{lst:bsteyt-pref-two-hs}, we simply calculate the indices of the grand-child nodes and prefetch them if they are within the array bounds. The full code is listed in appendix listing~\ref{lst:bsteyt-pref-two-h}.
+ 
+\begin{lstlisting}
+std::size_t l  = 2*i + 1;
+std::size_t r  = l + 1;
+if (l < a.size()) __builtin_prefetch(&a[l], 0, 1);
+if (r < a.size()) __builtin_prefetch(&a[r], 0, 1);
+
+std::size_t ll = 4*i + 3;   
+std::size_t lr = ll + 2;    
+std::size_t rl = 4*i + 5;   
+std::size_t rr = rl + 2;    
+
+if (ll < a.size()) __builtin_prefetch(&a[ll], 0, 1);
+if (lr < a.size()) __builtin_prefetch(&a[lr], 0, 1);
+if (rl < a.size()) __builtin_prefetch(&a[rl], 0, 1);
+if (rr < a.size()) __builtin_prefetch(&a[rr], 0, 1);
+\end{lstlisting}
+\captionof{lstlisting}[Two-level Prefetch in \texttt{BSTEytPrefetchTwo.h}]{Two-level software
+prefetch variation in \texttt{BSTEytPrefetchTwo.h} reported as \texttt{{BST\_EYT\_PREF\_TWO}}.}
+\label{lst:bsteyt-pref-two-hs}
+
+\subsection{Eytzinger Tree with three-level Prefetching}
+\label{sec:tree}
+The implementation seen in listing~\ref{lst:bsteyt-pref-three-hs} works in analogy to the prefetching implementation presented in section~\ref{sec:prefey}, however, it triggers a special compiler optimization which is explained in more detail in subsection~\ref{subsec:pred}. It uses the lambda function \texttt{pf} seen in listing~\ref{lst:bsteyt-pref-lambda} to safely prefetch three generations of children whose indices have been calculated prior. The full implementation can be found in the appendix listing~\ref{lst:bsteyt-pref-three-h}.
+
+\begin{lstlisting}
+auto pf = [&](std::size_t idx) {
+            if (idx < a.size()) __builtin_prefetch(&a[idx], 0, 1);
+        };
+
+\end{lstlisting}
+\captionof{lstlisting}[Prefetching Lambda Expression in \texttt{BSTEytPrefetchThree.h}]{Prefetching Lambda Expression with bound checks in \texttt{BSTEytPrefetchThree.h}}
+\label{lst:bsteyt-pref-lambda}
+\begin{lstlisting}
+std::size_t l = 2*i + 1;
+std::size_t r = l + 1;
+pf(l); pf(r);
+
+std::size_t ll = 2*l + 1;
+std::size_t lr = ll + 1;
+std::size_t rl = 2*r + 1;
+std::size_t rr = rl + 1;
+pf(ll); pf(lr); pf(rl); pf(rr);
+
+pf(2*ll + 1); pf(2*ll + 2);
+pf(2*lr + 1); pf(2*lr + 2);
+pf(2*rl + 1); pf(2*rl + 2);
+pf(2*rr + 1); pf(2*rr + 2);
+
+if      (k == a[i]) return true;
+else if (k <  a[i]) i = l;
+else                i = r;
+
+\end{lstlisting}
+\captionof{lstlisting}[Two-level Prefetch in \texttt{BSTEytPrefetchThree.h}]{Three-level software
+prefetch variant in \texttt{BSTEytPrefetchThree.h} reported as \texttt{BST\_EYT\_PREF\_THREE}.}
+\label{lst:bsteyt-pref-three-hs}
+
+
+\subsubsection{Predication \& If-Convertion}
+\label{subsec:pred}
+In the results section~\ref{sec:res} we can see that in fact, this implementation misses a lot fewer branching instructions compared to others, even though the concept is fundamentally the same and the executed branches are in the same order of magnitude. However, after a careful study of the actual binary, we were able to find the reason for this drastic result. In all of the implementations, the branch predictor of the CPU will pick up quickly on the branching behavior of code sections like \texttt{while} loops, bound checks, or the \texttt{if      (k == a[i])} check which is usually false. Unlike this, the final \texttt{else if} branch which determines if we go left or right is very hard to predict and hence dictates many performance metrics of the program. Upon closer inspections of the machine instruction generated by \texttt{gcc}, it turned out that the compiler applied the so-called \textit{if-conversion}~\cite{gcc-opt-manual} optimization to the critical \texttt{else if} statement only in the case of the three-level prefetch variant. This control flow optimization employs predication~\cite{10.1145/279358.279391} which uses conditional instructions such as \texttt{cmov} to enable branchless control flow. In our case, it basically removes the risk of a branch misprediction, as can be seen in the result section in plot \ref{fig:branchrate}.
+\input{figure/fig-ifconversion}
+In figure~\ref{fig:ifconv} we can see the concept of predication. We want to compile the control flow seen in the left panel into machine code. With branching instructions such as \texttt{jg} and \texttt{jmp}, the CPU will have to guess the outcome of the branch and speculatively execute one branch. If the branch was predicted wrong, the computed values have to be squashed once the control-dependent instruction, in this case the \texttt{cmp} instruction, was committed. In the \texttt{if-converted} example, we can do multiple things. Once, we have no branching instructions and hence also no branching target labels. Additionally, we can see the \texttt{cmovg} instructions which move the value of register \texttt{ecx} into register \texttt{ebx} if the greater-then flag was set by the \texttt{cmp} instruction earlier. This can be useful if the performance of the program is not limited by functional resources, e.g. ALUs but rather by latencies in the pipeline, e.g. because we took a cache miss and have to wait for the value of \texttt{x} to compare it. In listing~\ref{lst:asm-preftwocmov} we can see part of the actual \texttt{contains} function assembly code of the three-level prefetching implementation which is the only one that includes conditinal instructions. The register \texttt{edi} holds the value of \texttt{a[i]} so the value is stored in the current node. Register \texttt{rbx} holds the address of the search key \texttt{k}. The \texttt{je} instruction corresponds to the \texttt{if (k == a[i]) return true} path seen in listing~\ref{lst:bsteyt-pref-three-hs}. It has to be speculatively executed before the \texttt{cmp} instruction above can commit, however, it is easy to predict, because it will not be taken most of the time. The final \texttt{cmovl} instruction corresponds to the \texttt{k < a[i]} case. In fact, register~\texttt{r9} will hold the index of the left child which will be put into the target register if we go left. If we go right, the target register \texttt{rsi} already holds the index of the right child.  
+
+\input{figure/ls-threeasm}
+
+In this case, the CPU can do useful work by executing both branches and then just shift and push the right value into the final register. In our case, however, we are certainly memory-bound. Therefore, this optimization reduces mispredictions, but the overall performance is dictated by the latency to get the child nodes from memory. This can be seen in the results section figure~\ref{fig:nspsearch} which shows the nanoseconds per search. Although the three-level prefetch implementation has practically no branch mispredictions, the performance is still in the same area. To prevent this optimization in order to make the implementations comparable, we will use the compiler flags \texttt{-fno-if-conversion} and \texttt{-fno-if-conversion2} to disable if conversion. 
+
+
+
+\subsection{Eytzinger Tree with four-level Prefetching}
+In this aggressive variant of the prefetching implementation, we use a simple queue to hold for generations of child node indices to prefetch them upon the execution of the \texttt{contains} function, as can be seen in listing~\ref{lst:bsteyt-pref-four-hs}. The full code can be found in the appendix listing~\ref{lst:bsteyt-pref-four-h}.
+\begin{lstlisting}
+std::size_t q[32];           
+int front = 0, back = 0;
+q[back++] = i;
+
+for (int depth = 0; depth < 4; ++depth) {
+    int levelCount = back - front;
+    for (int n = 0; n < levelCount; ++n) {
+        std::size_t parent = q[front++];
+        std::size_t l = 2*parent + 1;
+        std::size_t r = l + 1;
+        pf(a, l); pf(a, r);
+        q[back++] = l;
+        q[back++] = r;
+    }
+}
+
+if      (k == a[i]) return true;
+else if (k <  a[i]) i = 2*i + 1;
+else                i = 2*i + 2;
+\end{lstlisting}
+\captionof{lstlisting}[Four-level Prefetching in \texttt{BSTEytPrefetchFour.h}]{Four-level software
+prefetch variant in \texttt{BSTEytPrefetchFour.h} reported as \texttt{BST\_EYT\_PREF\_FOUR}.}
+\label{lst:bsteyt-pref-four-hs}
+
+\subsection{Eytzinger Tree with probability-guided Prefetching}
+Prefetching memory lines can help to hide latencies. However, in the formally described implementations, we are guaranteed to prefetch memory lines which we will not use for the execution of the \texttt{contains} function. Depending on how many generations we prefetch, we will put more and more pressure on the cache by loading memory which has no practical use but rather causes disturbance in the execution. To address this issue, we present a probability-based implementation that uses the key value~\texttt{k} to decide in which direction the program should statistically invest more prefetches from a given budget. To this end, we first have to determine the minimum and maximum key of the tree using the \texttt{ensureMinMax} function seen in listing~\ref{lst:bsteyt-pref-prob-guded-hs}. It is used to guard the execution of the \texttt{contains} function seen in listing~\ref{lst:bsteyt-pref-prob-hs} to make sure we obtained the minimum and maximum upon the first query. Since this will only have to run once, we decorate the immediate return branch with \texttt{[[likely]]} and \texttt{\_\_builtin\_expect} to give a hint to the compiler to optimize this path. In any case, the runtime branch predictor would probably quickly pick up on the branching behavior. 
+
+\begin{lstlisting}
+[[gnu::always_inline]] inline void ensureMinMax() const
+    {
+        if (__builtin_expect(minmax_ready_, 1)) [[likely]]
+            return;
+
+        const auto& a = Base::arr_;
+        if (__builtin_expect(a.empty(), 0)) [[unlikely]] return;                      
+        auto [mn, mx] = std::minmax_element(a.begin(), a.end());
+        min_key_ = *mn;
+        max_key_ = *mx;
+        minmax_ready_ = true;
+    }
+\end{lstlisting}
+\captionof{lstlisting}[Programmer-guided Optimization for \texttt{ensureMinMax} Function in \texttt{BSTEytPrefProb.h}]{Programmer-guided Optimization for \texttt{ensureMinMax()} Function in \texttt{BSTEytPrefProb.h}.}
+\label{lst:bsteyt-pref-prob-guded-hs}
+
+We then use the \texttt{min\_key\_} and \texttt{max\_key\_} to allocate the total budget of prefetched lines, e.g. eight. For example, if key \texttt{k} is \texttt{max\_key\_} - 1, it makes much more sense to aggressively prefetch to the right rather than spend the budget on very unlikely cache lines. This way, we can avoid a certain amount of useless prefetches and hence useless traffic on the memory bandwidth and cache contention. The full code can be seen in the appendix listing~\ref{lst:bsteyt-pref-prob-h}.
+\begin{lstlisting}
+bool contains(const Key& k) const override
+    {
+        const_cast<BSTEytPrefProb*>(this)->Base::freeze();
+        const auto& a = Base::arr_;
+        if (a.empty()) return false;
+
+        ensureMinMax();
+
+        double ratio = (max_key_ == min_key_)
+                     ? 0.5
+                     : double(k - min_key_) / double(max_key_ - min_key_);
+        ratio = std::clamp(ratio, 0.0, 1.0);
+
+        std::size_t spent = 0;
+        std::size_t i = 0;                
+        std::size_t l = 1;                  
+        std::size_t r = 2;                  
+
+        if (l < a.size()) { pf(a, l); ++spent; }
+        if (r < a.size()) { pf(a, r); ++spent; }
+
+        std::size_t remaining = (Budget > spent) ? Budget - spent : 0;
+        std::size_t left_budget  = std::size_t(std::round(remaining * (1.0 - ratio)));
+        if (left_budget > remaining) left_budget = remaining;    
+        std::size_t right_budget = remaining - left_budget;
+
+        prefetchSubtree(a, l, left_budget);
+        prefetchSubtree(a, r, right_budget);
+
+        while (i < a.size()) {
+            const Key& key = a[i];
+            if (k == key) return true;
+            i = (k < key) ? 2 * i + 1 : 2 * i + 2;
+        }
+        return false;
+    }
+\end{lstlisting}
+\captionof{lstlisting}[Probability-guiden Prefetching in \texttt{BSTEytPrefProb.h}]{Probabilistic,
+path-biased prefetcher in \texttt{BSTEytPrefProb.h} reported as \texttt{BST\_EYT\_PREF\_PROB}.}
+\label{lst:bsteyt-pref-prob-hs}
+
+
+
+
+\section{Metrics \& Measurement}
+In our experimental setup, we can specify the repetitions of the individual experiment by using the configuration parameter~\texttt{T}. Hence, the metrics regarding total values, e.g. total time in nanoseconds report the average among the \texttt{T} repetitions. How we extract these metrics is explained in section~\ref{sec:counters}.
+\begin{itemize}
+  \item \textbf{ns\_per\_search}: Average time in nanoseconds spent for a \texttt{contains} query.  
+  \item \textbf{misses\_per\_search}: Average total cache misses for a \texttt{contains} query . 
+  \item \textbf{miss\_rate}: The total cache miss rate, meaning the percentage of load operations where we have to go to the main memory.  
+
+  \item \textbf{l1\_rate}: The L1 miss fraction in percent.  
+  \item \textbf{l3\_rate}: The L3 or last-level miss fraction in percent.   
+  \item \textbf{branches}: Total static branch instructions retired during the benchmark.  
+  \item \textbf{branch\_rate}: Quantifying predictor accuracy, meaning the fraction of branches that were mispredicted 
+  \item \textbf{branch\_per\_search}: The average amount branches we have to execute per \texttt{contains} function  
+
+\end{itemize}
+
+
+\subsection{Hardware Counters \& \texttt{Perf}}
+In this project, we use \texttt{perf}~\cite{perfwiki2025} as a framework for accessing the hardware counters of our CPU. To this end, we implement a wrapper class for the Linux-specific interface which can be seen along with the full setup in the appendix listing~\ref{lst:perfcounters-h}. In listing~\ref{lst:perfcounters-hs}, we can see the respective file descriptors through which we will be able to access the metric during the benchmarking runs. We instrument the level one and level three caches as well as the branch predictor. 
+\label{sec:counters}
+\begin{lstlisting}
+long long refs()  const { return refs_;  }
+long long misses()const { return miss_;  }
+
+long long l1_refs()   const { return l1_refs_;   }
+long long l1_misses() const { return l1_miss_;   }
+
+long long l3_refs()   const { return l3_refs_;   }
+long long l3_misses() const { return l3_miss_;   }
+
+long long branches()       const { return br_;       }
+long long branch_misses()  const { return br_miss_;  }
+\end{lstlisting}
+\captionof{lstlisting}[\texttt{Perf} Configuration Wrapper in \texttt{PerfCounters.h}]{The accessors for the wrapper around Linux for hardware counter sampling in \texttt{PerfCounters.h}. Even with \texttt{T} = 5 we have some headroom by using \texttt{long} datatypes.}
+\label{lst:perfcounters-hs}
+
+
+
+\subsection{Experiment}
+The experiment driver is configured using an instance file which can be seen in listing~\ref{lst:data-test-jsons}. We can specify the number of nodes (\texttt{n}) we want to allocate, the number of queries we want to run on the tree (\texttt{q}), the repetitions of the experiment (\texttt{T}) if we want CSV or a table output  (\texttt{csv}), the seed for the random number generator (\texttt{seed}) and if we also want to measure the construction time of the tree for the given implementation by using the \texttt{measure\_construction}. For all of the presented benchmarks, we have disabled this option, meaning we only measure the metric for the \texttt{q} queries. The whole driver can be seen in the appendix listing~\ref{lst:src-benchmark-cpp}. We also take additional measures to reduce noise, e.g. by preemptions and increase core affinity, as can be seen in appendix listing~\ref{lst:scale}.
+\begin{lstlisting}
+    for (int t = 0; t < T; ++t) {
+        auto tree = make();
+        Metrics m = benchOnce(*tree, lookups, inserts, measure_construction);
+
+        acc_ns      += m.ns;
+        acc_c_refs  += m.c_refs;  acc_c_miss  += m.c_miss;
+        acc_l1_refs += m.l1_refs; acc_l1_miss += m.l1_miss;
+        acc_l2_refs += m.l2_refs; acc_l2_miss += m.l2_miss;
+        acc_l3_refs += m.l3_refs; acc_l3_miss += m.l3_miss;
+        acc_br      += m.branches;acc_br_miss += m.br_miss;
+
+        if (t == 0) bytes_used = tree->size_bytes();
+    }
+\end{lstlisting}
+\captionof{lstlisting}[Benchmark Driver in \texttt{benchmark.cpp}]{Main benchmarking in \texttt{benchmark.cpp}.}
+\label{lst:src-benchmark-cpps}
+
+\begin{lstlisting}
+{
+  "n"   : 1000000,
+  "q"   : 1000000,
+  "T"   : 1,
+  "csv" : false,
+  "seed": 123,
+  "measure_construction": false
+}
+\end{lstlisting}
+\captionof{lstlisting}[Sample Configuration in \texttt{test.json}]{Quick-run configuration used in unit-test and CI pipelines in \texttt{test.json}.}
+\label{lst:data-test-jsons}
+
+
+\subsection{Testbed}
+We will run the experiment on an Intel(R) Core(TM) i7-8565U CPU at 1.80GHz. The memory hierarchy of this CPU can be seen in figure~\ref{fig:topo}. Most importantly, we see that we have a total of four cores that have private L1 and L2 caches, yet they have to share the L3 cache. Since our application runs single-threaded, we therefore have the core-specific L1 data cache (32 KB), L2 cache (256 KB), and the shared L3 cache (8 MB). 
+\begin{figure}[H]
+  \centering
+  \resizebox{0.7\linewidth}{!}{\input{topo}}
+  \caption[Testbed Memory Hierarchy]{The available testbed memory hierarchy. The four cores have to share the  8MB of available L3 cache.}
+  \label{fig:topo}
+\end{figure}
+
+\section{Results}
+\label{sec:res}
+In this section, we will compare the different implementations in terms of cache-friendliness, branch predictability, and overall performance. We only consider the query phase of the implementations and not the overhead to build the trees (\texttt{"measure\_construction": false}). Since we encountered the if-conversion compiler optimization for the three-level prefetching implementation introduced in section~\ref{sec:tree} and further explained in section~\ref{subsec:pred}, we will use the compiler flags \texttt{-fno-if-conversion} and \texttt{-fno-if-conversion2} to generate a comparable binary for the standard three-level implementation reported as \texttt{BST\_EYT\_PREF\_THREE}. However, we still include the if-converted variant as \texttt{BST\_EYT\_PREF\_THREE\_IFC}. The probability-biased prefetching implementation (\texttt{BST\_EYT\_PREF\_PROB }) uses a total budget of eight prefetches. In figure \ref{fig:nspsearch} we can see the average nanoseconds taken for one execution of the \texttt{contains} function of the different implementations depending on the number of nodes. Most of the variants take between one and two hundred nanoseconds whereas the most aggressive four-level prefetching implementation (\texttt{BST\_EYT\_PREF\_FOUR}) takes around four hundred nanoseconds more on average. This is likely due to the huge pressure on the cache generated by prefetching large amounts of memory lines. We can see that the plain Eytzinger implementation (\texttt{BST\_EYT}) delivers the best performance for small instance sizes of one to three million nodes. After that, single-prefetch (\texttt{BST\_EYT\_PREF}) and if-converted three-level prefetch variants become faster. A possible explanation for this could be that the cost for the additional index calculations for prefetching may amortize for larger instances. In addition to that, the single-prefetch variant likely loads an adequate amount of lines to the cache when eviction becomes more likely as the total size of the tree increases and hence fills up the level three cache. We will study the evolution of cache misses and evictions in section~\ref{res:cache}. Unlike the standard three-level implementation which probably loads to many lines like other aggressive implementations, e.g. two, three, or four-level prefetch, the if-converted variant can still keep up with the single-level implementation, even though it probably suffers from memory bandwidth contention since it fetches the same amount as the standard three-level implementation. In section~\ref{sub:br} we will see why branch prediction is a possible explanation for this outcome.  
+\input{figure/fig-ns-per-search}
+
+\subsection{Cache}
+\label{res:cache}
+In this section, we will compare the implementations regarding their locality properties. In figure~\ref{fig:cachemissbig}, we see the overall miss rates of the different versions as a function of $n$ nodes in the tree. We can observe a clear separation between the VanEmbden-Boas implementation (\texttt{BST\_VEB}) and the Eytzinger-based versions. The miss rate of the VEB layout lifts off much earlier and causes a significantly worse miss rate for larger tree sizes. The Eytzinger implementations all maintain a moderate 20-30\% miss rate and the aggressive four-level-prefetch variant can even maintain a rate below below twenty percent. The benefit of the Eytzinger layout becomes clear if we compare the plain implementation to the ones that employ manual prefetching. The layout is so predictable for the CPU-internal prefetchers that all implementations up to three levels of preloading result in comparable miss rates. This is a strong hint that in the case of the Eytzinger layout the microarchitecture of the given CPU gives us most of the benefit of prefetching for free without the need for manual programming. However, the lowest miss rate was still achieved by the four-level implementation, yet, we saw that the overall pressure of loading whole areas of the tree into the cache greatly affects performance, as reported previously in figure \ref{fig:nspsearch}. 
+\input{figure/fig-miss-big}
+
+The level-one miss rate seen in figure~\ref{fig:l1miss} reveals a different outcome from the total miss results. If we only consider the level-one miss rate, the plain Eytzinger version has to go to higher memory levels significantly more often followed by the VEB implementation. Depending on how aggressively we prefetch an area of the tree, the fewer misses we will cause. Untimely, the four-level version is constantly overwriting large parts of the cache with the area that is currently queried which results in a low miss rate, but high contention and hence negative performance impact.  
+\input{figure/fig-l1-rate}
+
+In figure~\ref{fig:l3miss}, we can see how we can utilize the L3 cache more aggressively by employing manual prefetching. Because of its larger size, we can fit larger areas of the tree into fast cache memory and reduce the miss rate, even if we mostly fetch useless lines with respect to the current query. If we compare the nanoseconds taken from figure~\ref{fig:nspsearch} with the L3 cache miss rate, we can conclude that a moderate two to three-level prefetch is a good balance between enhanced locality and contention on the memory system. 
+\input{figure/fig-l3-rate}
+
+The plots seen in figure~\ref{fig:missperop} compare absolute numbers of full cache misses of the different implementations. In particular, we see the average number of cache misses taken per search operation. It is important to note that these misses also include those triggered by prefetching operations. Hence, the plain Eytzinger version tries to touch the least amount of lines and hence takes the least misses per search on average. Interestingly, the probabilistic implementation closely follows this trend. Once we process about eight to nine million nodes, we see a sudden increase for the four-level prefetching while the other implementations can maintain a shallow development. At this point, the aggressive prefetching may constantly have to evict important sections of the tree, e.g. the root area, upon every traversal which causes this sudden increase. The VEB implementation consistently causes the most misses per search, but also only pulls in memory lines that are actually useful for the current query. 
+\input{figure/fig-miss-per-search}
+
+\subsection{Branch Prediction}
+\label{sub:br}
+In this section, we will report the control-flow properties and branch prediction friendliness as well as the effects of predication. We will differentiate between those branches that are easy to predict and hence have no or very little performance impact on the program and those that are basically impossible to consistently predict correctly. In figure~\ref{fig:totalbraches}, we see the total amount of branches that have to be executed for the given implementation. The more lines we want to attempt to prefetch, the more bound checks we have to perform. This is why the four-level implementation executed by far the most branches. The other implementations require near-proportionally less bound checks and hence branches. The two three-level versions are offset by a small margin, likely the branch which was if-converted. Even though the difference is very small, we can observe a massive difference in terms of branch predictability, as can be seen in figure~\ref{fig:branchrate}.
+\input{figure/fig-total-branches}
+
+In fact, the if-converted three-level prefetch implementation virtually causes no mispredictions because the critical if-statement was predicated, as we saw earlier in section~\ref{subsec:pred}. For the remaining implementations, we can see how the easy-to-predict bound checks water down the miss rate. Up to this point, the three-level prefetching implementation and its if-converted version showed very similar metrics, e.g. in terms of locality. However, we saw in figure~\ref{fig:nspsearch} that the predicated version constantly delivers better performance. We can certainly relate this increase in performance to the fact that the predicated version does not suffer from hard-to-predict branches and the resulting performance penalty of branch misprediction. 
+\input{figure/fig-braches-rate}
+
+\section{Conclusion}
+In this project, we implemented and benchmarked different variants of pointer-free binary search trees such as VanEmde-Boas and Eytzinger trees with increasingly aggressive manual data prefetching. We instrumented the program using the \texttt{perf} framework to access metrics such as cache misses and branch mispredictions to evaluate the behavior of the different implementations. We surprisingly encountered the \textit{if-conversion} control-flow optimization of the compiler and included it in our analysis. We found that the Eytzinger-based implementations by default enable the CPU-internal prefetchers to pull in more useful data ahead of time, even without explicit prefetching for up to three levels of the tree. We identified that prefetching beyond three levels likely causes too much contention in the memory system and hence degenerates the performance of the program. We categorized the branches of the different programs into easy and hard-to-predict and found that only the final branch which determines whether to go left or right causes problems to the branch predictor. In fact, the if-converted program uses predicated instructions to virtually eliminate any critical branch misspredition during the execution which results in a significant performance increase compared to the branching variant. 
+
+
+\input{appendix}
+
+\newpage
+\printbibliography
+
+\end{document}
