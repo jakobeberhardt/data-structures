@@ -35,6 +35,7 @@ parser.add_argument(
         "BST_EYT_PREF_THREE",
         "BST_EYT_PREF_FOUR",
         "BST_EYT_PREF_PROB",
+        "BST_EYT_PREF_THREE_NOIC",
     ],
     help="Implementations to include (in legend order)",
 )
@@ -49,6 +50,7 @@ styles = {
     "BST_EYT_PREF_THREE": dict(color="purple", line="loosely dotted", mark="pentagon*"),
     "BST_EYT_PREF_FOUR":  dict(color="brown",  line="densely dashed", mark="x*"),
     "BST_EYT_PREF_PROB":  dict(color="black",  line="densely dotted", mark="o"),
+    "BST_EYT_PREF_THREE_NOIC":  dict(color="purple",  line="densely dotted", mark="pentagon"),
 }
 
 missing = [impl for impl in args.impls if impl not in styles]
